@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "index.js"
+    }
+  ],
+  "env": {
+    "MONGO_URI": "@mongo_uri",
+    "CLIENT_ORIGIN": "@client_origin",
+    "QUIZ_QUESTION_COUNT": "10",
+    "QUIZ_DURATION_MS": "240000",
+    "PORT": "3001"
+  }
+}
