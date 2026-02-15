@@ -308,4 +308,26 @@ router.put("/admin/settings", async (req, res) => {
   }
 });
 
+router.delete("/admin/leaderboard", async (req, res) => {
+  try {
+    const { adminCode } = req.body;
+    if (adminCode !== "LongLiveAdmins01234") {
+      return res.status(401).json({ error: "Invalid admin code." });
+    }
+
+    await Promise.all([
+      Player.deleteMany({}),
+      QuizSession.deleteMany({}),
+      Submission.deleteMany({})
+    ]);
+
+    return res.json({
+      success: true,
+      message: "Leaderboard cleared successfully."
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to clear leaderboard." });
+  }
+});
+
 module.exports = router;
