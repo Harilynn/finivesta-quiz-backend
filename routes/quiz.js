@@ -178,4 +178,75 @@ router.post("/submit", async (req, res) => {
   }
 });
 
+// Admin: Create question
+router.post("/admin/questions", async (req, res) => {
+  try {
+    const { adminCode, prompt, options, correctIndex, category, difficulty } = req.body || {};
+    
+    if (adminCode !== "LongLiveAdmins01234") {
+      return res.status(403).json({ error: "Invalid admin code." });
+    }
+
+    if (!prompt || !options || options.length !== 4 || correctIndex === undefined) {
+      return res.status(400).json({ error: "Invalid question data." });
+    }
+
+    const question = await Question.create({
+      prompt: prompt.trim(),
+      options,
+      correctIndex,
+      category: category || "Finance",
+      difficulty: difficulty || "Medium",
+    });
+
+    return res.json({
+      success: true,
+      question: sanitizeQuestion(question),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to create question." });
+  }
+});
+
+// Admin: Get all questions
+router.get("/admin/questions", async (req, res) => {
+  try {
+    const { adminCode } = req.query;
+    
+    if (adminCode !== "LongLiveAdmins01234") {
+      return res.status(403).json({ error: "Invalid admin code." });
+    }
+
+    const questions = await Question.find().lean();
+    return res.json({
+      questions: questions.map((q) => ({
+        id: q._id.toString(),
+        prompt: q.prompt,
+        options: q.options,
+        correctIndex: q.correctIndex,
+        category: q.category,
+        difficulty: q.difficulty,
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to fetch questions." });
+  }
+});
+
+// Admin: Delete question
+router.delete("/admin/questions/:id", async (req, res) => {
+  try {
+    const { adminCode } = req.body || {};
+    
+    if (adminCode !== "LongLiveAdmins01234") {
+      return res.status(403).json({ error: "Invalid admin code." });
+    }
+
+    await Question.findByIdAndDelete(req.params.id);
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to delete question." });
+  }
+});
+
 module.exports = router;
