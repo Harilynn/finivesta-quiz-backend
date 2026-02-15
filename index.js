@@ -17,7 +17,12 @@ app.set("trust proxy", 1);
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN || "http://localhost:3000",
+    origin: [
+      process.env.CLIENT_ORIGIN || "http://localhost:3000",
+      "https://finivesta-quiz-frontend.vercel.app",
+      "https://finivesta-quiz-frontend-git-main-harilynn.vercel.app",
+      /\.vercel\.app$/
+    ],
     credentials: true,
   })
 );

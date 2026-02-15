@@ -28,7 +28,7 @@ router.post("/start", async (req, res) => {
     const questionCount = Number(process.env.QUIZ_QUESTION_COUNT || 8);
     const durationMs = Number(process.env.QUIZ_DURATION_MS || 240000);
 
-    const questions = await Question.find().lean();
+    const questions = await Question.find({ adminCreated: true }).lean();
     if (!questions.length || questions.length < questionCount) {
       return res.status(400).json({ error: "Not enough questions available." });
     }
@@ -181,7 +181,7 @@ router.post("/submit", async (req, res) => {
 // Admin: Create question
 router.post("/admin/questions", async (req, res) => {
   try {
-    const { adminCode, prompt, options, correctIndex, category, difficulty } = req.body || {};
+    const { adminCode, prompt, options, correctIndex, category } = req.body || {};
     
     if (adminCode !== "LongLiveAdmins01234") {
       return res.status(403).json({ error: "Invalid admin code." });
@@ -196,7 +196,7 @@ router.post("/admin/questions", async (req, res) => {
       options,
       correctIndex,
       category: category || "Finance",
-      difficulty: difficulty || "Medium",
+      adminCreated: true,
     });
 
     return res.json({
@@ -217,7 +217,7 @@ router.get("/admin/questions", async (req, res) => {
       return res.status(403).json({ error: "Invalid admin code." });
     }
 
-    const questions = await Question.find().lean();
+    const questions = await Question.find({ adminCreated: true }).lean();
     return res.json({
       questions: questions.map((q) => ({
         id: q._id.toString(),
@@ -225,8 +225,11 @@ router.get("/admin/questions", async (req, res) => {
         options: q.options,
         correctIndex: q.correctIndex,
         category: q.category,
-        difficulty: q.difficulty,
       })),
+      config: {
+        questionCount: Number(process.env.QUIZ_QUESTION_COUNT || 8),
+        durationMs: Number(process.env.QUIZ_DURATION_MS || 240000),
+      },
     });
   } catch (error) {
     return res.status(500).json({ error: "Failed to fetch questions." });

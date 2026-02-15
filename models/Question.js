@@ -6,7 +6,7 @@ const QuestionSchema = new mongoose.Schema(
     options: { type: [String], required: true },
     correctIndex: { type: Number, required: true },
     category: { type: String, default: "Finance" },
-    difficulty: { type: String, default: "Medium" },
+    adminCreated: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
