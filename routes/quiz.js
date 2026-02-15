@@ -4,11 +4,23 @@ const Question = require("../models/Question");
 const Player = require("../models/Player");
 const QuizSession = require("../models/QuizSession");
 const Submission = require("../models/Submission");
+const QuizSettings = require("../models/QuizSettings");
 const { secureShuffle } = require("../utils/shuffle");
 const { leaderboardEmitter } = require("../utils/leaderboardEmitter");
 const { getLeaderboardEntries } = require("../utils/leaderboard");
 
 const router = express.Router();
+
+const getQuizSettings = async () => {
+  let settings = await QuizSettings.findOne();
+  if (!settings) {
+    settings = await QuizSettings.create({
+      questionCount: 10,
+      durationMs: 300000,
+    });
+  }
+  return settings;
+};
 
 const sanitizeQuestion = (question) => ({
   id: question._id.toString(),
@@ -25,8 +37,9 @@ router.post("/start", async (req, res) => {
       return res.status(400).json({ error: "Name is required." });
     }
 
-    const questionCount = Number(process.env.QUIZ_QUESTION_COUNT || 8);
-    const durationMs = Number(process.env.QUIZ_DURATION_MS || 240000);
+    const settings = await getQuizSettings();
+    const questionCount = settings.questionCount;
+    const durationMs = settings.durationMs;
 
     const questions = await Question.find({ adminCreated: true }).lean();
     if (!questions.length || questions.length < questionCount) {
@@ -218,6 +231,8 @@ router.get("/admin/questions", async (req, res) => {
     }
 
     const questions = await Question.find({ adminCreated: true }).lean();
+    const settings = await getQuizSettings();
+    
     return res.json({
       questions: questions.map((q) => ({
         id: q._id.toString(),
@@ -227,8 +242,8 @@ router.get("/admin/questions", async (req, res) => {
         category: q.category,
       })),
       config: {
-        questionCount: Number(process.env.QUIZ_QUESTION_COUNT || 8),
-        durationMs: Number(process.env.QUIZ_DURATION_MS || 240000),
+        questionCount: settings.questionCount,
+        durationMs: settings.durationMs,
       },
     });
   } catch (error) {
@@ -249,6 +264,47 @@ router.delete("/admin/questions/:id", async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ error: "Failed to delete question." });
+  }
+});
+
+// Admin: Update quiz settings
+router.put("/admin/settings", async (req, res) => {
+  try {
+    const { adminCode, questionCount, durationMs } = req.body || {};
+    
+    if (adminCode !== "LongLiveAdmins01234") {
+      return res.status(403).json({ error: "Invalid admin code." });
+    }
+
+    if (questionCount !== undefined && (questionCount < 1 || questionCount > 100)) {
+      return res.status(400).json({ error: "Question count must be between 1 and 100." });
+    }
+
+    if (durationMs !== undefined && durationMs < 30000) {
+      return res.status(400).json({ error: "Duration must be at least 30 seconds." });
+    }
+
+    let settings = await QuizSettings.findOne();
+    if (!settings) {
+      settings = await QuizSettings.create({
+        questionCount: questionCount || 10,
+        durationMs: durationMs || 300000,
+      });
+    } else {
+      if (questionCount !== undefined) settings.questionCount = questionCount;
+      if (durationMs !== undefined) settings.durationMs = durationMs;
+      await settings.save();
+    }
+
+    return res.json({
+      success: true,
+      config: {
+        questionCount: settings.questionCount,
+        durationMs: settings.durationMs,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to update settings." });
   }
 });
 
