@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const SubmissionSchema = new mongoose.Schema(
   {
     sessionId: { type: String, required: true, unique: true },
+    quizNumber: { type: Number, required: true, min: 1 },
     playerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player", required: true },
     answers: [
       {

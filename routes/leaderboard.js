@@ -1,16 +1,42 @@
 const express = require("express");
 const { leaderboardEmitter } = require("../utils/leaderboardEmitter");
-const { getLeaderboardEntries } = require("../utils/leaderboard");
+const { getLeaderboardEntries, getAvailableQuizzes } = require("../utils/leaderboard");
+const { getQuizSettings, getQuizLabel, parseQuizNumber } = require("../utils/quizSettings");
 
 const router = express.Router();
 
 router.get("/", async (req, res) => {
   try {
     const limit = req.query.limit || 20;
-    const entries = await getLeaderboardEntries(limit);
-    return res.json({ entries });
+    const requestedQuiz = parseQuizNumber(req.query.quizNumber);
+    const settings = await getQuizSettings();
+    const quizNumber = requestedQuiz || settings.currentQuizNumber;
+    const entries = await getLeaderboardEntries({ limit, quizNumber });
+    return res.json({
+      quizNumber,
+      quizLabel: getQuizLabel(quizNumber),
+      entries,
+    });
   } catch (error) {
     return res.status(500).json({ error: "Failed to fetch leaderboard." });
+  }
+});
+
+router.get("/quizzes", async (req, res) => {
+  try {
+    const settings = await getQuizSettings();
+    const quizzes = await getAvailableQuizzes();
+
+    return res.json({
+      currentQuizNumber: settings.currentQuizNumber,
+      quizzes: quizzes.map((quiz) => ({
+        quizNumber: quiz.quizNumber,
+        quizLabel: getQuizLabel(quiz.quizNumber),
+        attempts: quiz.attempts,
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to fetch quiz history." });
   }
 });
 
@@ -20,15 +46,28 @@ router.get("/stream", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
+  const requestedQuiz = parseQuizNumber(req.query.quizNumber);
+  const settings = await getQuizSettings();
+  const quizNumber = requestedQuiz || settings.currentQuizNumber;
+
   const sendEntries = async () => {
-    const entries = await getLeaderboardEntries(20);
-    res.write(`data: ${JSON.stringify({ entries })}\n\n`);
+    const entries = await getLeaderboardEntries({ limit: 20, quizNumber });
+    res.write(
+      `data: ${JSON.stringify({ quizNumber, quizLabel: getQuizLabel(quizNumber), entries })}\n\n`
+    );
   };
 
   await sendEntries();
 
-  const handler = async (entries) => {
-    res.write(`data: ${JSON.stringify({ entries })}\n\n`);
+  const handler = async (payload = {}) => {
+    if (payload.quizNumber && payload.quizNumber !== quizNumber) {
+      return;
+    }
+
+    const entries = payload.entries || (await getLeaderboardEntries({ limit: 20, quizNumber }));
+    res.write(
+      `data: ${JSON.stringify({ quizNumber, quizLabel: getQuizLabel(quizNumber), entries })}\n\n`
+    );
   };
 
   leaderboardEmitter.on("update", handler);

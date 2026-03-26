@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const QuizSessionSchema = new mongoose.Schema(
   {
     sessionId: { type: String, required: true, unique: true },
+    quizNumber: { type: Number, required: true, min: 1 },
     playerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player", required: true },
     questionIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Question" }],
     startedAt: { type: Date, required: true },

@@ -4,23 +4,12 @@ const Question = require("../models/Question");
 const Player = require("../models/Player");
 const QuizSession = require("../models/QuizSession");
 const Submission = require("../models/Submission");
-const QuizSettings = require("../models/QuizSettings");
 const { secureShuffle } = require("../utils/shuffle");
 const { leaderboardEmitter } = require("../utils/leaderboardEmitter");
-const { getLeaderboardEntries } = require("../utils/leaderboard");
+const { getLeaderboardEntries, buildQuizFilter } = require("../utils/leaderboard");
+const { getQuizSettings, getQuizLabel, parseQuizNumber } = require("../utils/quizSettings");
 
 const router = express.Router();
-
-const getQuizSettings = async () => {
-  let settings = await QuizSettings.findOne();
-  if (!settings) {
-    settings = await QuizSettings.create({
-      questionCount: 10,
-      durationMs: 300000,
-    });
-  }
-  return settings;
-};
 
 const sanitizeQuestion = (question) => ({
   id: question._id.toString(),
@@ -40,6 +29,7 @@ router.post("/start", async (req, res) => {
     const settings = await getQuizSettings();
     const questionCount = settings.questionCount;
     const durationMs = settings.durationMs;
+    const quizNumber = settings.currentQuizNumber;
 
     const questions = await Question.find({ adminCreated: true }).lean();
     if (!questions.length || questions.length < questionCount) {
@@ -59,6 +49,7 @@ router.post("/start", async (req, res) => {
 
     await QuizSession.create({
       sessionId,
+      quizNumber,
       playerId: player._id,
       questionIds: selected.map((question) => question._id),
       startedAt,
@@ -76,6 +67,8 @@ router.post("/start", async (req, res) => {
       startedAt: startedAt.getTime(),
       expiresAt: expiresAt.getTime(),
       durationMs,
+      quizNumber,
+      quizLabel: getQuizLabel(quizNumber),
       serverTime: Date.now(),
     });
   } catch (error) {
@@ -113,6 +106,8 @@ router.get("/session/:sessionId", async (req, res) => {
       startedAt: session.startedAt.getTime(),
       expiresAt: session.expiresAt.getTime(),
       durationMs: session.durationMs,
+      quizNumber: session.quizNumber || 1,
+      quizLabel: getQuizLabel(session.quizNumber || 1),
       serverTime: Date.now(),
     });
   } catch (error) {
@@ -162,6 +157,7 @@ router.post("/submit", async (req, res) => {
 
     const submission = await Submission.create({
       sessionId,
+      quizNumber: session.quizNumber || 1,
       playerId: session.playerId,
       answers: detailedAnswers,
       score,
@@ -175,8 +171,9 @@ router.post("/submit", async (req, res) => {
     session.timeTakenMs = timeTakenMs;
     await session.save();
 
-    const entries = await getLeaderboardEntries(20);
-    leaderboardEmitter.emit("update", entries);
+    const activeQuizNumber = session.quizNumber || 1;
+    const entries = await getLeaderboardEntries({ limit: 20, quizNumber: activeQuizNumber });
+    leaderboardEmitter.emit("update", { quizNumber: activeQuizNumber, entries });
 
     return res.json({
       sessionId,
@@ -184,6 +181,8 @@ router.post("/submit", async (req, res) => {
       score,
       totalQuestions,
       timeTakenMs,
+      quizNumber: activeQuizNumber,
+      quizLabel: getQuizLabel(activeQuizNumber),
       leaderboard: entries,
     });
   } catch (error) {
@@ -244,6 +243,8 @@ router.get("/admin/questions", async (req, res) => {
       config: {
         questionCount: settings.questionCount,
         durationMs: settings.durationMs,
+        currentQuizNumber: settings.currentQuizNumber,
+        currentQuizLabel: getQuizLabel(settings.currentQuizNumber),
       },
     });
   } catch (error) {
@@ -301,6 +302,8 @@ router.put("/admin/settings", async (req, res) => {
       config: {
         questionCount: settings.questionCount,
         durationMs: settings.durationMs,
+        currentQuizNumber: settings.currentQuizNumber,
+        currentQuizLabel: getQuizLabel(settings.currentQuizNumber),
       },
     });
   } catch (error) {
@@ -308,22 +311,71 @@ router.put("/admin/settings", async (req, res) => {
   }
 });
 
+router.post("/admin/quizzes/advance", async (req, res) => {
+  try {
+    const { adminCode } = req.body || {};
+
+    if (adminCode !== "LongLiveAdmins01234") {
+      return res.status(403).json({ error: "Invalid admin code." });
+    }
+
+    const settings = await getQuizSettings();
+    settings.currentQuizNumber = (settings.currentQuizNumber || 1) + 1;
+    await settings.save();
+
+    return res.json({
+      success: true,
+      currentQuizNumber: settings.currentQuizNumber,
+      currentQuizLabel: getQuizLabel(settings.currentQuizNumber),
+      message: "Advanced to the next quiz. Previous leaderboard records are retained.",
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to advance quiz." });
+  }
+});
+
 router.delete("/admin/leaderboard", async (req, res) => {
   try {
-    const { adminCode } = req.body;
+    const { adminCode, quizNumber } = req.body || {};
     if (adminCode !== "LongLiveAdmins01234") {
       return res.status(401).json({ error: "Invalid admin code." });
     }
 
-    await Promise.all([
-      Player.deleteMany({}),
-      QuizSession.deleteMany({}),
-      Submission.deleteMany({})
-    ]);
+    const settings = await getQuizSettings();
+    const parsedQuizNumber = parseQuizNumber(quizNumber) || settings.currentQuizNumber;
+    const filter = buildQuizFilter(parsedQuizNumber);
+
+    const sessionsToDelete = await QuizSession.find(filter, { _id: 1, playerId: 1 }).lean();
+    const sessionIds = sessionsToDelete.map((session) => session.sessionId);
+    const playerIds = sessionsToDelete.map((session) => session.playerId);
+
+    await QuizSession.deleteMany(filter);
+    await Submission.deleteMany(filter);
+
+    if (playerIds.length) {
+      const usedElsewhere = await QuizSession.distinct("playerId", {
+        playerId: { $in: playerIds },
+      });
+
+      const usedSet = new Set(usedElsewhere.map((id) => id.toString()));
+      const removablePlayerIds = playerIds
+        .map((id) => id.toString())
+        .filter((id, index, arr) => arr.indexOf(id) === index)
+        .filter((id) => !usedSet.has(id));
+
+      if (removablePlayerIds.length) {
+        await Player.deleteMany({ _id: { $in: removablePlayerIds } });
+      }
+    }
+
+    leaderboardEmitter.emit("update", { quizNumber: parsedQuizNumber, entries: [] });
 
     return res.json({
       success: true,
-      message: "Leaderboard cleared successfully."
+      quizNumber: parsedQuizNumber,
+      quizLabel: getQuizLabel(parsedQuizNumber),
+      deletedSessions: sessionIds.length,
+      message: "Leaderboard cleared successfully for the selected quiz."
     });
   } catch (error) {
     return res.status(500).json({ error: "Failed to clear leaderboard." });
