@@ -285,17 +285,10 @@ router.put("/admin/settings", async (req, res) => {
       return res.status(400).json({ error: "Duration must be at least 30 seconds." });
     }
 
-    let settings = await QuizSettings.findOne();
-    if (!settings) {
-      settings = await QuizSettings.create({
-        questionCount: questionCount || 10,
-        durationMs: durationMs || 300000,
-      });
-    } else {
-      if (questionCount !== undefined) settings.questionCount = questionCount;
-      if (durationMs !== undefined) settings.durationMs = durationMs;
-      await settings.save();
-    }
+    const settings = await getQuizSettings();
+    if (questionCount !== undefined) settings.questionCount = questionCount;
+    if (durationMs !== undefined) settings.durationMs = durationMs;
+    await settings.save();
 
     return res.json({
       success: true,
