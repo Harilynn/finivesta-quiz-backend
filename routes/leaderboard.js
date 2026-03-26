@@ -5,9 +5,26 @@ const { getQuizSettings, getQuizLabel, parseQuizNumber } = require("../utils/qui
 
 const router = express.Router();
 
+const parseLeaderboardLimit = (value, fallback = 20) => {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  if (String(value).toLowerCase() === "all") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  return fallback;
+};
+
 router.get("/", async (req, res) => {
   try {
-    const limit = req.query.limit || 20;
+    const limit = parseLeaderboardLimit(req.query.limit, 20);
     const requestedQuiz = parseQuizNumber(req.query.quizNumber);
     const settings = await getQuizSettings();
     const quizNumber = requestedQuiz || settings.currentQuizNumber;
@@ -47,11 +64,12 @@ router.get("/stream", async (req, res) => {
   res.flushHeaders();
 
   const requestedQuiz = parseQuizNumber(req.query.quizNumber);
+  const limit = parseLeaderboardLimit(req.query.limit, 20);
   const settings = await getQuizSettings();
   const quizNumber = requestedQuiz || settings.currentQuizNumber;
 
   const sendEntries = async () => {
-    const entries = await getLeaderboardEntries({ limit: 20, quizNumber });
+    const entries = await getLeaderboardEntries({ limit, quizNumber });
     res.write(
       `data: ${JSON.stringify({ quizNumber, quizLabel: getQuizLabel(quizNumber), entries })}\n\n`
     );
@@ -64,7 +82,7 @@ router.get("/stream", async (req, res) => {
       return;
     }
 
-    const entries = payload.entries || (await getLeaderboardEntries({ limit: 20, quizNumber }));
+    const entries = await getLeaderboardEntries({ limit, quizNumber });
     res.write(
       `data: ${JSON.stringify({ quizNumber, quizLabel: getQuizLabel(quizNumber), entries })}\n\n`
     );

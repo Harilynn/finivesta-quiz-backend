@@ -15,12 +15,11 @@ const buildQuizFilter = (quizNumber) => {
   return { quizNumber };
 };
 
-const getLeaderboardEntries = async ({ limit = 20, quizNumber } = {}) => {
+const getLeaderboardEntries = async ({ limit, quizNumber } = {}) => {
   const matchStage = buildQuizFilter(quizNumber);
-  const entries = await Submission.aggregate([
+  const pipeline = [
     { $match: matchStage },
     { $sort: { score: -1, timeTakenMs: 1, submittedAt: 1 } },
-    { $limit: Number(limit) || 20 },
     {
       $lookup: {
         from: "players",
@@ -41,7 +40,14 @@ const getLeaderboardEntries = async ({ limit = 20, quizNumber } = {}) => {
         playerName: "$player.name",
       },
     },
-  ]);
+  ];
+
+  const parsedLimit = Number(limit);
+  if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
+    pipeline.splice(2, 0, { $limit: parsedLimit });
+  }
+
+  const entries = await Submission.aggregate(pipeline);
 
   return entries;
 };
