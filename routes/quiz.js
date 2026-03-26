@@ -281,6 +281,13 @@ router.put("/admin/settings", async (req, res) => {
       return res.status(400).json({ error: "Question count must be between 1 and 100." });
     }
 
+    const availableQuestionCount = await Question.countDocuments({ adminCreated: true });
+    if (questionCount !== undefined && questionCount > availableQuestionCount) {
+      return res.status(400).json({
+        error: `Question count cannot exceed available questions (${availableQuestionCount}).`,
+      });
+    }
+
     if (durationMs !== undefined && durationMs < 30000) {
       return res.status(400).json({ error: "Duration must be at least 30 seconds." });
     }
